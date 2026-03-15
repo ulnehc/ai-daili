@@ -152,14 +152,11 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 
 <div class="field">
 <label>自定义 CORS 代理地址（可选）</label>
-<input type="text" id="corsProxy" placeholder="例如 https://your-proxy.workers.dev/?">
-<div class="cors-hint">
-⚠️ 如果遇到 "Failed to fetch" 错误，说明该中转站不支持浏览器直接跨域请求。<br>
-<b>解决方案（任选其一）：</b><br>
-1. 填入自建 CORS 代理地址（推荐用 Cloudflare Worker）<br>
-2. 安装浏览器插件 <a href="https://chromewebstore.google.com/detail/allow-cors/lhobafahddgcelffkeicbaginigeejlf" target="_blank">Allow CORS</a><br>
-3. 联系中转站站长添加 CORS 支持
+<input type="text" id="corsProxy" placeholder="例如 https://your-proxy.workers.dev/">
 </div>
+<div class="toggle-row">
+<input type="checkbox" id="corsEnabled">
+<label for="corsEnabled" style="margin:0;font-size:12px;color:var(--text)">🌐 启用 CORS 代理（新中转站开，旧中转站关）</label>
 </div>
 
 <div class="field"><label>AI 头像 URL（留空用默认 🤖）</label><input type="text" id="aiAvatar" placeholder="https://example.com/ai.png"></div>
@@ -238,6 +235,7 @@ $('model').addEventListener('input',()=>{$('modelTag').textContent=$('model').va
 
 $('imageEnabled').addEventListener('change',function(){$('imgSection').classList.toggle('hidden',!this.checked);if(this.checked&&imageUrls.length===0)addImageUrl();saveSettings()});
 $('timestampEnabled').addEventListener('change',function(){saveSettings()});
+$('corsEnabled').addEventListener('change',function(){saveSettings()});
 
 function addImageUrl(val=''){imageUrls.push(val);renderImageUrls()}
 function removeImageUrl(i){imageUrls.splice(i,1);if(!imageUrls.length)imageUrls.push('');renderImageUrls()}
@@ -290,14 +288,11 @@ function buildUrl(path) {
     const apiBase = $('apiBase').value.trim().replace(/\/+$/, '');
     const corsProxy = $('corsProxy').value.trim();
     const fullUrl = `${apiBase}${path}`;
-    if (corsProxy) {
-        // 支持两种代理格式：
-        // 1. https://proxy.example.com/?  → 拼接完整URL
-        // 2. https://proxy.example.com/   → 拼接完整URL
+    // 只有开关打开并且填了代理地址才走代理
+    if ($('corsEnabled').checked && corsProxy) {
         if (corsProxy.endsWith('?') || corsProxy.endsWith('=')) {
             return corsProxy + encodeURIComponent(fullUrl);
         }
-        // 如果代理地址末尾有/，直接拼上原始URL
         return corsProxy.replace(/\/+$/, '') + '/' + fullUrl;
     }
     return fullUrl;
@@ -309,9 +304,8 @@ function buildHeaders() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
     };
-    // 某些 CORS 代理需要原始的 Origin 或者特殊头
     const corsProxy = $('corsProxy').value.trim();
-    if (corsProxy) {
+    if ($('corsEnabled').checked && corsProxy) {
         headers['X-Requested-With'] = 'XMLHttpRequest';
     }
     return headers;
@@ -339,8 +333,11 @@ alert('获取模型失败: '+msg);btn.textContent='获取失败';setTimeout(()=>
 btn.disabled=false;
 }
 
-function saveSettings(){const s={};['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','corsProxy'].forEach(k=>s[k]=$(k).value);s.imageEnabled=$('imageEnabled').checked;s.timestampEnabled=$('timestampEnabled').checked;localStorage.setItem('pg_settings',JSON.stringify(s))}
-function loadSettings(){try{const s=JSON.parse(localStorage.getItem('pg_settings'));if(!s)return;Object.keys(s).forEach(k=>{if(k==='imageEnabled'){$('imageEnabled').checked=s[k];$('imgSection').classList.toggle('hidden',!s[k])}else if(k==='timestampEnabled'){$('timestampEnabled').checked=!!s[k]}else if($(k))$(k).value=s[k]});sliders.forEach(([id,v])=>$(v).textContent=$(id).value);$('modelTag').textContent=$('model').value||'model'}catch(e){}}
+function saveSettings(){const s={};['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','corsProxy'].forEach(k=>s[k]=$(k).value);s.imageEnabled=$('imageEnabled').checked;s.timestampEnabled=$('timestampEnabled').checked;s.corsEnabled=$('corsEnabled').checked;
+localStorage.setItem('pg_settings',JSON.stringify(s))}
+function loadSettings(){try{const s=JSON.parse(localStorage.getItem('pg_settings'));if(!s)return;Object.keys(s).forEach(k=>{if(k==='imageEnabled'){$('imageEnabled').checked=s[k];$('imgSection').classList.toggle('hidden',!s[k])}
+else if(k==='timestampEnabled'){$('timestampEnabled').checked=!!s[k]}
+else if(k==='corsEnabled'){$('corsEnabled').checked=!!s[k]}else if($(k))$(k).value=s[k]});sliders.forEach(([id,v])=>$(v).textContent=$(id).value);$('modelTag').textContent=$('model').value||'model'}catch(e){}}
 document.querySelectorAll('.sidebar input,.sidebar select').forEach(el=>el.addEventListener('change',saveSettings));
 
 let db=null;
@@ -647,6 +644,7 @@ const settings={};
 ['apiBase','apiKey','model','temperature','topP','maxTokens','freqPenalty','presPenalty','aiAvatar','userAvatar','maxRounds','corsProxy'].forEach(k=>settings[k]=$(k).value);
 settings.imageEnabled=$('imageEnabled').checked;
 settings.timestampEnabled=$('timestampEnabled').checked;
+settings.corsEnabled=$('corsEnabled').checked;
 const backup={backupVersion:1,timestamp:Date.now(),settings,conversations,currentConvId};
 const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -663,7 +661,9 @@ const data=JSON.parse(e.target.result);
 if(!data.backupVersion){alert('这不是备份文件，请使用"导入对话"按钮');return}
 if(data.settings){
 const s=data.settings;
-Object.keys(s).forEach(k=>{if(k==='imageEnabled'){$('imageEnabled').checked=s[k];$('imgSection').classList.toggle('hidden',!s[k])}else if(k==='timestampEnabled'){$('timestampEnabled').checked=!!s[k]}else if($(k))$(k).value=s[k]});
+Object.keys(s).forEach(k=>{if(k==='imageEnabled'){$('imageEnabled').checked=s[k];$('imgSection').classList.toggle('hidden',!s[k])}else if(k==='timestampEnabled'){$('timestampEnabled').checked=!!s[k]}
+else if(k==='corsEnabled'){$('corsEnabled').checked=!!s[k]}
+else if($(k))$(k).value=s[k]});
 sliders.forEach(([id,v])=>$(v).textContent=$(id).value);
 $('modelTag').textContent=$('model').value||'model';
 }
